@@ -23,16 +23,19 @@ session_tag = Tag(name="Session", description="Manage scheduled sessions")
 # -------------------------
 # HOME
 # -------------------------
-@app.get('/', tags=[home_tag])
+@app.get("/", tags=[home_tag])
 def home():
-    return redirect('/openapi')
+    return redirect("/openapi")
 
 
 # -------------------------
 # PROVIDER
 # -------------------------
-@app.post('/provider', tags=[provider_tag],
-          responses={"200": ProviderViewSchema, "409": ErrorSchema, "400": ErrorSchema})
+@app.post(
+    "/provider",
+    tags=[provider_tag],
+    responses={"200": ProviderViewSchema, "409": ErrorSchema, "400": ErrorSchema},
+)
 def add_provider(form: ProviderSchema):
     try:
         provider = Provider(
@@ -43,7 +46,7 @@ def add_provider(form: ProviderSchema):
             phone=form.phone,
             website=form.website,
             instagram=form.instagram,
-            description=form.description
+            description=form.description,
         )
 
         session = SessionLocal()
@@ -63,8 +66,7 @@ def add_provider(form: ProviderSchema):
         return {"message": "Could not create provider"}, 400
 
 
-@app.get('/providers', tags=[provider_tag],
-         responses={"200": ProviderListSchema})
+@app.get("/providers", tags=[provider_tag], responses={"200": ProviderListSchema})
 def get_providers():
     session = SessionLocal()
     providers = session.query(Provider).all()
@@ -72,11 +74,14 @@ def get_providers():
     return present_providers(providers), 200
 
 
-@app.get('/provider', tags=[provider_tag],
-         responses={"200": ProviderViewSchema, "404": ErrorSchema})
-def get_provider(query: ProviderSearchSchema):
+@app.get(
+    "/provider/<int:provider_id>",
+    tags=[provider_tag],
+    responses={"200": ProviderViewSchema, "404": ErrorSchema},
+)
+def get_provider_by_id(path: ProviderIdPath):
     session = SessionLocal()
-    provider = session.query(Provider).filter(Provider.name == query.name).first()
+    provider = session.query(Provider).filter(Provider.id == path.provider_id).first()
 
     if not provider:
         logger.warning("Provider not found")
@@ -85,27 +90,38 @@ def get_provider(query: ProviderSearchSchema):
     return present_provider(provider), 200
 
 
-@app.delete('/provider', tags=[provider_tag],
-            responses={"200": ProviderDeleteSchema, "404": ErrorSchema})
-def delete_provider(query: ProviderSearchSchema):
-    provider_name = query.name
-
-    session = SessionLocal()
-    count = session.query(Provider).filter(Provider.name == provider_name).delete()
-    session.commit()
-
-    if count:
-        logger.debug(f"Deleted provider: {provider_name}")
-        return {"message": "Provider deleted", "name": provider_name}, 200
-    else:
+@app.delete(
+    "/provider/<int:provider_id>",
+    tags=[provider_tag],
+    responses={"200": ProviderDeleteSchema, "404": ErrorSchema, "409": ErrorSchema},
+)
+def delete_provider_by_id(path: ProviderIdPath):
+    db = SessionLocal()
+    provider = db.get(Provider, path.provider_id)
+    if not provider:
         logger.warning("Provider not found")
         return {"message": "Provider not found"}, 404
+    try:
+        db.delete(provider)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        logger.warning("Provider delete blocked by existing references")
+        return {
+            "message": "Cannot delete provider: remove or reassign dependent sessions first",
+        }, 409
+    logger.debug(f"Deleted provider id={path.provider_id}")
+    return {"message": "Provider deleted", "id": path.provider_id}, 200
+
 
 # -------------------------
 # ACTIVITY
 # -------------------------
-@app.post('/activity', tags=[activity_tag],
-          responses={"200": ActivitySchema, "409": ErrorSchema, "400": ErrorSchema})
+@app.post(
+    "/activity",
+    tags=[activity_tag],
+    responses={"200": ActivityViewSchema, "409": ErrorSchema, "400": ErrorSchema},
+)
 def add_activity(form: ActivitySchema):
     try:
         activity = Activity(name=form.name)
@@ -127,8 +143,7 @@ def add_activity(form: ActivitySchema):
         return {"message": "Could not create activity"}, 400
 
 
-@app.get('/activities', tags=[activity_tag],
-         responses={"200": ActivityListSchema})
+@app.get("/activities", tags=[activity_tag], responses={"200": ActivityListSchema})
 def get_activities():
     session = SessionLocal()
     activities = session.query(Activity).all()
@@ -136,11 +151,14 @@ def get_activities():
     return present_activities(activities), 200
 
 
-@app.get('/activity', tags=[activity_tag],
-         responses={"200": ActivitySchema, "404": ErrorSchema})
-def get_activity(query: ActivitySchema):
+@app.get(
+    "/activity/<int:activity_id>",
+    tags=[activity_tag],
+    responses={"200": ActivityViewSchema, "404": ErrorSchema},
+)
+def get_activity_by_id(path: ActivityIdPath):
     session = SessionLocal()
-    activity = session.query(Activity).filter(Activity.name == query.name).first()
+    activity = session.query(Activity).filter(Activity.id == path.activity_id).first()
 
     if not activity:
         logger.warning("Activity not found")
@@ -149,27 +167,38 @@ def get_activity(query: ActivitySchema):
     return {"id": activity.id, "name": activity.name}, 200
 
 
-@app.delete('/activity', tags=[activity_tag],
-            responses={"200": ActivityDeleteSchema, "404": ErrorSchema})
-def delete_activity(query: ActivitySchema):
-    activity_name = query.name
-
-    session = SessionLocal()
-    count = session.query(Activity).filter(Activity.name == activity_name).delete()
-    session.commit()
-
-    if count:
-        logger.debug(f"Deleted activity: {activity_name}")
-        return {"message": "Activity deleted", "name": activity_name}, 200
-    else:
+@app.delete(
+    "/activity/<int:activity_id>",
+    tags=[activity_tag],
+    responses={"200": ActivityDeleteSchema, "404": ErrorSchema, "409": ErrorSchema},
+)
+def delete_activity_by_id(path: ActivityIdPath):
+    db = SessionLocal()
+    activity = db.get(Activity, path.activity_id)
+    if not activity:
         logger.warning("Activity not found")
         return {"message": "Activity not found"}, 404
-        
+    try:
+        db.delete(activity)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        logger.warning("Activity delete blocked by existing references")
+        return {
+            "message": "Cannot delete activity: remove sessions that use this activity first",
+        }, 409
+    logger.debug(f"Deleted activity id={path.activity_id}")
+    return {"message": "Activity deleted", "id": path.activity_id}, 200
+
+
 # -------------------------
 # SESSION (scheduled offering)
 # -------------------------
-@app.post('/session', tags=[session_tag],
-          responses={"200": SessionViewSchema, "400": ErrorSchema})
+@app.post(
+    "/session",
+    tags=[session_tag],
+    responses={"200": SessionViewSchema, "400": ErrorSchema, "409": ErrorSchema},
+)
 def add_session(form: SessionSchema):
     try:
         new_session = Session(
@@ -177,7 +206,7 @@ def add_session(form: SessionSchema):
             time=form.time,
             provider_id=form.provider_id,
             activity_id=form.activity_id,
-            name=form.name
+            name=form.name,
         )
 
         db = SessionLocal()
@@ -188,13 +217,16 @@ def add_session(form: SessionSchema):
 
         return present_session(new_session), 200
 
+    except IntegrityError:
+        logger.warning("Session FK conflict on create")
+        return {"message": "Invalid provider_id or activity_id (or duplicate row)"}, 409
+
     except Exception as e:
         logger.warning(f"Error creating session: {e}")
         return {"message": "Could not create session"}, 400
 
 
-@app.get('/sessions', tags=[session_tag],
-         responses={"200": SessionListSchema})
+@app.get("/sessions", tags=[session_tag], responses={"200": SessionListSchema})
 def get_sessions():
     db = SessionLocal()
     rows = db.query(Session).all()
@@ -202,17 +234,15 @@ def get_sessions():
     return present_sessions(rows), 200
 
 
-@app.get('/session', tags=[session_tag],
-         responses={"200": SessionViewSchema, "404": ErrorSchema})
-def get_session(query: SessionSchema):
+@app.get(
+    "/session/<int:session_id>",
+    tags=[session_tag],
+    responses={"200": SessionViewSchema, "404": ErrorSchema},
+)
+def get_session_by_id(path: SessionIdPath):
     db = SessionLocal()
 
-    row = db.query(Session).filter(
-        Session.provider_id == query.provider_id,
-        Session.activity_id == query.activity_id,
-        Session.weekday == query.weekday,
-        Session.time == query.time
-    ).first()
+    row = db.query(Session).filter(Session.id == path.session_id).first()
 
     if not row:
         logger.warning("Session not found")
@@ -221,23 +251,18 @@ def get_session(query: SessionSchema):
     return present_session(row), 200
 
 
-@app.delete('/session', tags=[session_tag],
-            responses={"200": SessionDeleteSchema, "404": ErrorSchema})
-def delete_session(query: SessionSchema):
+@app.delete(
+    "/session/<int:session_id>",
+    tags=[session_tag],
+    responses={"200": SessionDeleteSchema, "404": ErrorSchema},
+)
+def delete_session_by_id(path: SessionIdPath):
     db = SessionLocal()
-
-    count = db.query(Session).filter(
-        Session.provider_id == query.provider_id,
-        Session.activity_id == query.activity_id,
-        Session.weekday == query.weekday,
-        Session.time == query.time
-    ).delete()
-
-    db.commit()
-
-    if count:
-        logger.debug("Deleted session")
-        return {"message": "Session deleted", "id": count}, 200
-    else:
+    row = db.get(Session, path.session_id)
+    if not row:
         logger.warning("Session not found")
         return {"message": "Session not found"}, 404
+    db.delete(row)
+    db.commit()
+    logger.debug(f"Deleted session id={path.session_id}")
+    return {"message": "Session deleted", "id": path.session_id}, 200

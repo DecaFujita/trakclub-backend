@@ -1,6 +1,6 @@
 from schemas.provider import (
     ProviderSchema,
-    ProviderSearchSchema,
+    ProviderIdPath,
     ProviderListSchema,
     ProviderDeleteSchema,
     ProviderViewSchema,
@@ -9,12 +9,15 @@ from schemas.provider import (
 )
 from schemas.activity import (
     ActivitySchema,
+    ActivityViewSchema,
+    ActivityIdPath,
     ActivityListSchema,
     ActivityDeleteSchema,
     present_activities,
 )
 from schemas.session import (
     SessionSchema,
+    SessionIdPath,
     SessionViewSchema,
     SessionListSchema,
     SessionDeleteSchema,

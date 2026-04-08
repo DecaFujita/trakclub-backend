@@ -1,44 +1,35 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, RootModel, field_validator
 from typing import Optional, List
 from model.provider import Provider
+
+
+class ProviderIdPath(BaseModel):
+    """ Path parameter for GET/DELETE /provider/<provider_id> """
+    provider_id: int = Field(..., description="Provider primary key")
 
 
 class ProviderSchema(BaseModel):
     """ Defines how a new provider (club) should be represented """
     name: str = "My Club"
     address: Optional[str] = "Street 123"
-    city: Optional[str] = "São Paulo"
-    state: Optional[str] = "SP"
+    city: Optional[str] = "Rio de Janeiro"
+    state: Optional[str] = "RJ"
     phone: Optional[str] = "999999999"
     website: Optional[str] = "www.club.com"
     instagram: Optional[str] = "@club"
     description: Optional[str] = "Best club in town"
 
+    @field_validator("phone", mode="before")
+    @classmethod
+    def phone_to_str(cls, v):
+        if v is None:
+            return v
+        return str(v)
+
 
 class ProviderSearchSchema(BaseModel):
     """ Defines search structure (by name) """
     name: str = "My Club"
-
-
-class ProviderListSchema(BaseModel):
-    """ Defines how a list of providers is returned """
-    providers: List[ProviderSchema]
-
-
-class ProviderDeleteSchema(BaseModel):
-    message: str
-    name: str
-
-
-def present_providers(providers: List[Provider]):
-    result = []
-    for provider in providers:
-        result.append({
-            "id": provider.id,
-            "name": provider.name,
-            "city": provider.city
-        })
-    return {"providers": result}
 
 
 class ProviderViewSchema(BaseModel):
@@ -48,6 +39,28 @@ class ProviderViewSchema(BaseModel):
     city: Optional[str]
     state: Optional[str]
     active: bool
+
+
+class ProviderListSchema(RootModel[List[ProviderViewSchema]]):
+    """Top-level JSON array for GET /providers."""
+
+
+class ProviderDeleteSchema(BaseModel):
+    message: str
+    id: int
+
+
+def present_providers(providers: List[Provider]):
+    result = []
+    for provider in providers:
+        result.append({
+            "id": provider.id,
+            "name": provider.name,
+            "city": provider.city,
+            "state": provider.state,
+            "active": provider.active,
+        })
+    return result
 
 
 def present_provider(provider: Provider):
