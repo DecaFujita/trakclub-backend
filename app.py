@@ -1,8 +1,11 @@
+from collections import defaultdict
+from typing import Dict, List
+
 from flask_openapi3 import OpenAPI, Info, Tag
 from flask import redirect
 from sqlalchemy.exc import IntegrityError
 
-from model import Session, SessionLocal, Provider, Activity
+from model import Session, SessionLocal, Provider, Activity, ProviderActivity
 from logger import logger
 from schemas import *
 
@@ -44,7 +47,6 @@ def add_provider(form: ProviderSchema):
             city=form.city,
             state=form.state,
             phone=form.phone,
-            website=form.website,
             instagram=form.instagram,
             description=form.description,
         )
@@ -55,7 +57,7 @@ def add_provider(form: ProviderSchema):
 
         logger.debug(f"Created provider: {provider.name}")
 
-        return present_provider(provider), 200
+        return present_provider(provider, []), 200
 
     except IntegrityError:
         logger.warning("Provider already exists")
@@ -70,8 +72,21 @@ def add_provider(form: ProviderSchema):
 def get_providers():
     session = SessionLocal()
     providers = session.query(Provider).all()
+    ids = [p.id for p in providers]
+    activities_by_provider: Dict[int, List[Activity]] = {}
+    if ids:
+        rows = (
+            session.query(ProviderActivity, Activity)
+            .join(Activity, ProviderActivity.activity_id == Activity.id)
+            .filter(ProviderActivity.provider_id.in_(ids))
+            .all()
+        )
+        by_pid = defaultdict(list)
+        for pa, act in rows:
+            by_pid[pa.provider_id].append(act)
+        activities_by_provider = dict(by_pid)
 
-    return present_providers(providers), 200
+    return present_providers(providers, activities_by_provider), 200
 
 
 @app.get(
@@ -87,7 +102,13 @@ def get_provider_by_id(path: ProviderIdPath):
         logger.warning("Provider not found")
         return {"message": "Provider not found"}, 404
 
-    return present_provider(provider), 200
+    activities = (
+        session.query(Activity)
+        .join(ProviderActivity, ProviderActivity.activity_id == Activity.id)
+        .filter(ProviderActivity.provider_id == path.provider_id)
+        .all()
+    )
+    return present_provider(provider, activities), 200
 
 
 @app.delete(

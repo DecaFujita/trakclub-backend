@@ -1,22 +1,23 @@
 from pydantic import BaseModel, Field, RootModel, field_validator
-from typing import Optional, List
+from typing import Optional, List, Dict
 from model.provider import Provider
+from model.activity import Activity
+from schemas.activity import ActivityViewSchema, present_activities
 
 
 class ProviderIdPath(BaseModel):
-    """ Path parameter for GET/DELETE /provider/<provider_id> """
     provider_id: int = Field(..., description="Provider primary key")
 
 
 class ProviderSchema(BaseModel):
-    """ Defines how a new provider (club) should be represented """
+    """Defines how a new provider (club) should be represented"""
     name: str = "My Club"
     address: Optional[str] = "Street 123"
-    city: Optional[str] = "Rio de Janeiro"
-    state: Optional[str] = "RJ"
+    city: str = "Rio de Janeiro"
+    state: str = "RJ"
     phone: Optional[str] = "999999999"
-    website: Optional[str] = "www.club.com"
-    instagram: Optional[str] = "@club"
+    instagram: str = "@club"
+    email: Optional[str] = "club@club.com"
     description: Optional[str] = "Best club in town"
 
     @field_validator("phone", mode="before")
@@ -26,19 +27,27 @@ class ProviderSchema(BaseModel):
             return v
         return str(v)
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def name_to_str(cls, v):
+        if v is None:
+            return v
+        return str(v)
 
-class ProviderSearchSchema(BaseModel):
-    """ Defines search structure (by name) """
-    name: str = "My Club"
+
+# class ProviderSearchSchema(BaseModel):
+#     name: str = "My Club"
 
 
 class ProviderViewSchema(BaseModel):
-    """ Defines how a provider is returned """
+    """Defines how a provider is returned"""
+
     id: int
     name: str
     city: Optional[str]
     state: Optional[str]
     active: bool
+    activities: List[ActivityViewSchema] = Field(default_factory=list)
 
 
 class ProviderListSchema(RootModel[List[ProviderViewSchema]]):
@@ -50,24 +59,34 @@ class ProviderDeleteSchema(BaseModel):
     id: int
 
 
-def present_providers(providers: List[Provider]):
+def present_providers(
+    providers: List[Provider],
+    activities_by_provider: Optional[Dict[int, List[Activity]]] = None,
+):
+    by_pid = activities_by_provider or {}
     result = []
     for provider in providers:
-        result.append({
-            "id": provider.id,
-            "name": provider.name,
-            "city": provider.city,
-            "state": provider.state,
-            "active": provider.active,
-        })
+        acts = by_pid.get(provider.id, [])
+        result.append(
+            {
+                "id": provider.id,
+                "name": provider.name,
+                "city": provider.city,
+                "state": provider.state,
+                "active": provider.active,
+                "activities": present_activities(acts),
+            }
+        )
     return result
 
 
-def present_provider(provider: Provider):
+def present_provider(provider: Provider, activities: Optional[List[Activity]] = None):
+    acts = activities or []
     return {
         "id": provider.id,
         "name": provider.name,
         "city": provider.city,
         "state": provider.state,
-        "active": provider.active
+        "active": provider.active,
+        "activities": present_activities(acts),
     }

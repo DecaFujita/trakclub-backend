@@ -1,6 +1,6 @@
 from sqlalchemy_utils import database_exists, create_database
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 import os
 
 # importando os elementos definidos no modelo
@@ -31,3 +31,11 @@ if not database_exists(engine.url):
 
 # cria as tabelas do banco, caso não existam
 Base.metadata.create_all(engine)
+
+# Migração leve: create_all não altera tabelas já existentes (ex.: SQLite antigo sem email)
+_insp = inspect(engine)
+if _insp.has_table("provider"):
+    _provider_cols = {c["name"] for c in _insp.get_columns("provider")}
+    if "email" not in _provider_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE provider ADD COLUMN email VARCHAR(255)"))
