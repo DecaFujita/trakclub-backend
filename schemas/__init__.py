@@ -4,8 +4,10 @@ from schemas.provider import (
     ProviderListSchema,
     ProviderDeleteSchema,
     ProviderViewSchema,
+    ProviderDetailViewSchema,
     present_provider,
     present_providers,
+    present_provider_details,
 )
 from schemas.activity import (
     ActivitySchema,

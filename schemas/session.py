@@ -5,18 +5,15 @@ from model.session import Session
 
 
 class SessionIdPath(BaseModel):
-    """ Path parameter for GET/DELETE /session/<session_id> """
     session_id: int = Field(..., description="Session primary key")
 
 
 class SessionSchema(BaseModel):
-    """Body for POST /session — provider_id and activity_id must be sent by the client (existing FKs)."""
-
     provider_id: int = Field(..., description="ID of an existing provider")
     activity_id: int = Field(..., description="ID of an existing activity")
     weekday: str = "Tue"
     time: str = "18:00"
-    name: Optional[str] = "Yoga Evening"
+    # name: Optional[str] = "Yoga Evening"
 
     @field_validator("provider_id", "activity_id", mode="before")
     @classmethod
@@ -32,7 +29,7 @@ class SessionViewSchema(BaseModel):
     time: str
     provider_id: int
     activity_id: int
-    name: Optional[str] = None
+    # name: Optional[str] = None
 
 
 class SessionListSchema(RootModel[List[SessionViewSchema]]):
@@ -47,14 +44,16 @@ class SessionDeleteSchema(BaseModel):
 def present_sessions(sessions: List[Session]):
     result = []
     for s in sessions:
-        result.append({
-            "id": s.id,
-            "weekday": s.weekday,
-            "time": s.time,
-            "provider_id": s.provider_id,
-            "activity_id": s.activity_id,
-            "name": s.name,
-        })
+        result.append(
+            {
+                "id": s.id,
+                "weekday": s.weekday,
+                "time": s.time,
+                "provider_id": s.provider_id,
+                "activity_id": s.activity_id,
+                # "name": s.name,
+            }
+        )
     return result
 
 
@@ -65,5 +64,5 @@ def present_session(s: Session):
         "time": s.time,
         "provider_id": s.provider_id,
         "activity_id": s.activity_id,
-        "name": s.name,
+        # "name": s.name,
     }

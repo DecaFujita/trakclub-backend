@@ -2,19 +2,57 @@ from collections import defaultdict
 from typing import Dict, List
 
 from flask_openapi3 import OpenAPI, Info, Tag
-from flask import redirect
+from flask import redirect, request, make_response
 from sqlalchemy.exc import IntegrityError
 
 from model import Session, SessionLocal, Provider, Activity, ProviderActivity
 from logger import logger
 from schemas import *
 
-from flask_cors import CORS
-
 # API setup
-info = Info(title="TrakClub API", version="1.0.0")
+info = Info(
+    title="TrakClub API",
+    version="1.0.0",
+    description="MVP API for clubs (providers), activity types, and scheduled sessions.",
+)
 app = OpenAPI(__name__, info=info)
-CORS(app)
+
+
+def _apply_cors_headers(response):
+    """CORS for browser clients. OPTIONS is handled in before_request because OpenAPI
+    routes often omit OPTIONS, which produced 405 preflights with no CORS headers."""
+    origin = request.headers.get("Origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+    else:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+
+    response.headers["Access-Control-Allow-Methods"] = (
+        "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
+    )
+    req_headers = request.headers.get("Access-Control-Request-Headers")
+    if req_headers:
+        response.headers["Access-Control-Allow-Headers"] = req_headers
+    else:
+        response.headers["Access-Control-Allow-Headers"] = (
+            "Content-Type, Authorization, Accept, X-Requested-With"
+        )
+    response.headers["Access-Control-Max-Age"] = "86400"
+    return response
+
+
+@app.before_request
+def _cors_preflight():
+    if request.method == "OPTIONS":
+        return _apply_cors_headers(make_response("", 204))
+
+
+@app.after_request
+def _cors_after(response):
+    return _apply_cors_headers(response)
+
 
 # Tags
 home_tag = Tag(name="Docs", description="API Documentation")
@@ -26,8 +64,9 @@ session_tag = Tag(name="Session", description="Manage scheduled sessions")
 # -------------------------
 # HOME
 # -------------------------
-@app.get("/", tags=[home_tag])
+@app.get("/", tags=[home_tag], summary="Open API documentation (redirect)")
 def home():
+    """Redirects the root URL to the interactive OpenAPI / Swagger UI."""
     return redirect("/openapi")
 
 
@@ -37,9 +76,11 @@ def home():
 @app.post(
     "/provider",
     tags=[provider_tag],
+    summary="Create a club (provider)",
     responses={"200": ProviderViewSchema, "409": ErrorSchema, "400": ErrorSchema},
 )
 def add_provider(form: ProviderSchema):
+    """Register a new provider. Returns a summary view including id; activities start empty."""
     try:
         provider = Provider(
             name=form.name,
@@ -68,23 +109,51 @@ def add_provider(form: ProviderSchema):
         return {"message": "Could not create provider"}, 400
 
 
-@app.get("/providers", tags=[provider_tag], responses={"200": ProviderListSchema})
+def _activities_by_provider_ids(
+    sa_session, provider_ids: List[int]
+) -> Dict[int, List[Activity]]:
+    """Distinct Activity rows per provider from session rows and provider_activity."""
+    if not provider_ids:
+        return {}
+    by_pid: Dict[int, dict] = defaultdict(lambda: {"order": [], "ids": set()})
+
+    def _add(pid: int, act: Activity) -> None:
+        bucket = by_pid[pid]
+        if act.id not in bucket["ids"]:
+            bucket["ids"].add(act.id)
+            bucket["order"].append(act)
+
+    for pid, act in (
+        sa_session.query(Session.provider_id, Activity)
+        .join(Activity, Session.activity_id == Activity.id)
+        .filter(Session.provider_id.in_(provider_ids))
+        .all()
+    ):
+        _add(pid, act)
+
+    for pa, act in (
+        sa_session.query(ProviderActivity, Activity)
+        .join(Activity, ProviderActivity.activity_id == Activity.id)
+        .filter(ProviderActivity.provider_id.in_(provider_ids))
+        .all()
+    ):
+        _add(pa.provider_id, act)
+
+    return {pid: data["order"] for pid, data in by_pid.items()}
+
+
+@app.get(
+    "/providers",
+    tags=[provider_tag],
+    summary="List all clubs (providers)",
+    responses={"200": ProviderListSchema},
+)
 def get_providers():
+    """Returns every provider with basic fields and linked activities (from sessions and provider_activity)."""
     session = SessionLocal()
     providers = session.query(Provider).all()
     ids = [p.id for p in providers]
-    activities_by_provider: Dict[int, List[Activity]] = {}
-    if ids:
-        rows = (
-            session.query(ProviderActivity, Activity)
-            .join(Activity, ProviderActivity.activity_id == Activity.id)
-            .filter(ProviderActivity.provider_id.in_(ids))
-            .all()
-        )
-        by_pid = defaultdict(list)
-        for pa, act in rows:
-            by_pid[pa.provider_id].append(act)
-        activities_by_provider = dict(by_pid)
+    activities_by_provider = _activities_by_provider_ids(session, ids)
 
     return present_providers(providers, activities_by_provider), 200
 
@@ -92,9 +161,11 @@ def get_providers():
 @app.get(
     "/provider/<int:provider_id>",
     tags=[provider_tag],
-    responses={"200": ProviderViewSchema, "404": ErrorSchema},
+    summary="Get one club by id (full detail)",
+    responses={"200": ProviderDetailViewSchema, "404": ErrorSchema},
 )
 def get_provider_by_id(path: ProviderIdPath):
+    """Returns contact fields, description, and activities for a single provider."""
     session = SessionLocal()
     provider = session.query(Provider).filter(Provider.id == path.provider_id).first()
 
@@ -102,21 +173,20 @@ def get_provider_by_id(path: ProviderIdPath):
         logger.warning("Provider not found")
         return {"message": "Provider not found"}, 404
 
-    activities = (
-        session.query(Activity)
-        .join(ProviderActivity, ProviderActivity.activity_id == Activity.id)
-        .filter(ProviderActivity.provider_id == path.provider_id)
-        .all()
+    activities = _activities_by_provider_ids(session, [path.provider_id]).get(
+        path.provider_id, []
     )
-    return present_provider(provider, activities), 200
+    return present_provider_details(provider, activities), 200
 
 
 @app.delete(
     "/provider/<int:provider_id>",
     tags=[provider_tag],
+    summary="Delete a club (provider)",
     responses={"200": ProviderDeleteSchema, "404": ErrorSchema, "409": ErrorSchema},
 )
 def delete_provider_by_id(path: ProviderIdPath):
+    """Removes a provider. Fails with 409 if sessions still reference this provider."""
     db = SessionLocal()
     provider = db.get(Provider, path.provider_id)
     if not provider:
@@ -141,9 +211,11 @@ def delete_provider_by_id(path: ProviderIdPath):
 @app.post(
     "/activity",
     tags=[activity_tag],
+    summary="Create an activity type",
     responses={"200": ActivityViewSchema, "409": ErrorSchema, "400": ErrorSchema},
 )
 def add_activity(form: ActivitySchema):
+    """Creates a global activity (e.g. Yoga). Name must be unique."""
     try:
         activity = Activity(name=form.name)
 
@@ -164,8 +236,14 @@ def add_activity(form: ActivitySchema):
         return {"message": "Could not create activity"}, 400
 
 
-@app.get("/activities", tags=[activity_tag], responses={"200": ActivityListSchema})
+@app.get(
+    "/activities",
+    tags=[activity_tag],
+    summary="List all activity types",
+    responses={"200": ActivityListSchema},
+)
 def get_activities():
+    """Returns all activities that can be linked to providers via sessions."""
     session = SessionLocal()
     activities = session.query(Activity).all()
 
@@ -175,9 +253,11 @@ def get_activities():
 @app.get(
     "/activity/<int:activity_id>",
     tags=[activity_tag],
+    summary="Get one activity by id",
     responses={"200": ActivityViewSchema, "404": ErrorSchema},
 )
 def get_activity_by_id(path: ActivityIdPath):
+    """Returns id and name for a single activity."""
     session = SessionLocal()
     activity = session.query(Activity).filter(Activity.id == path.activity_id).first()
 
@@ -191,9 +271,11 @@ def get_activity_by_id(path: ActivityIdPath):
 @app.delete(
     "/activity/<int:activity_id>",
     tags=[activity_tag],
+    summary="Delete an activity type",
     responses={"200": ActivityDeleteSchema, "404": ErrorSchema, "409": ErrorSchema},
 )
 def delete_activity_by_id(path: ActivityIdPath):
+    """Deletes an activity. Fails with 409 if any session still uses it."""
     db = SessionLocal()
     activity = db.get(Activity, path.activity_id)
     if not activity:
@@ -218,16 +300,17 @@ def delete_activity_by_id(path: ActivityIdPath):
 @app.post(
     "/session",
     tags=[session_tag],
+    summary="Schedule a session (provider + activity + time)",
     responses={"200": SessionViewSchema, "400": ErrorSchema, "409": ErrorSchema},
 )
 def add_session(form: SessionSchema):
+    """Creates a scheduled offering: weekday, time, provider_id, activity_id. FKs must exist."""
     try:
         new_session = Session(
             weekday=form.weekday,
             time=form.time,
             provider_id=form.provider_id,
             activity_id=form.activity_id,
-            name=form.name,
         )
 
         db = SessionLocal()
@@ -247,8 +330,14 @@ def add_session(form: SessionSchema):
         return {"message": "Could not create session"}, 400
 
 
-@app.get("/sessions", tags=[session_tag], responses={"200": SessionListSchema})
+@app.get(
+    "/sessions",
+    tags=[session_tag],
+    summary="List all scheduled sessions",
+    responses={"200": SessionListSchema},
+)
 def get_sessions():
+    """Returns every session row (weekday, time, provider_id, activity_id)."""
     db = SessionLocal()
     rows = db.query(Session).all()
 
@@ -258,9 +347,11 @@ def get_sessions():
 @app.get(
     "/session/<int:session_id>",
     tags=[session_tag],
+    summary="Get one scheduled session by id",
     responses={"200": SessionViewSchema, "404": ErrorSchema},
 )
 def get_session_by_id(path: SessionIdPath):
+    """Returns a single session by primary key."""
     db = SessionLocal()
 
     row = db.query(Session).filter(Session.id == path.session_id).first()
@@ -275,9 +366,11 @@ def get_session_by_id(path: SessionIdPath):
 @app.delete(
     "/session/<int:session_id>",
     tags=[session_tag],
+    summary="Delete a scheduled session",
     responses={"200": SessionDeleteSchema, "404": ErrorSchema},
 )
 def delete_session_by_id(path: SessionIdPath):
+    """Removes one session row by id."""
     db = SessionLocal()
     row = db.get(Session, path.session_id)
     if not row:

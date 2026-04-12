@@ -22,4 +22,4 @@ class Session(Base):
         self.time = time
         self.provider_id = provider_id
         self.activity_id = activity_id
-        self.name = name
+        # self.name = name

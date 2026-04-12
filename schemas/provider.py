@@ -11,6 +11,7 @@ class ProviderIdPath(BaseModel):
 
 class ProviderSchema(BaseModel):
     """Defines how a new provider (club) should be represented"""
+
     name: str = "My Club"
     address: Optional[str] = "Street 123"
     city: str = "Rio de Janeiro"
@@ -47,6 +48,22 @@ class ProviderViewSchema(BaseModel):
     city: Optional[str]
     state: Optional[str]
     active: bool
+    activities: List[ActivityViewSchema] = Field(default_factory=list)
+
+
+class ProviderDetailViewSchema(BaseModel):
+    """Single provider with full fields (GET /provider/<id>)."""
+
+    id: int
+    name: str
+    city: Optional[str]
+    state: Optional[str]
+    active: bool
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    instagram: Optional[str] = None
+    email: Optional[str] = None
+    description: Optional[str] = None
     activities: List[ActivityViewSchema] = Field(default_factory=list)
 
 
@@ -88,5 +105,24 @@ def present_provider(provider: Provider, activities: Optional[List[Activity]] = 
         "city": provider.city,
         "state": provider.state,
         "active": provider.active,
+        "activities": present_activities(acts),
+    }
+
+
+def present_provider_details(
+    provider: Provider, activities: Optional[List[Activity]] = None
+):
+    acts = activities or []
+    return {
+        "id": provider.id,
+        "name": provider.name,
+        "city": provider.city,
+        "state": provider.state,
+        "active": provider.active,
+        "address": provider.address,
+        "phone": provider.phone,
+        "instagram": provider.instagram,
+        "email": provider.email,
+        "description": provider.description,
         "activities": present_activities(acts),
     }
