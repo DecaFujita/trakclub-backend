@@ -1,8 +1,6 @@
-# Minha API
+# TrakClub API
 
-Este pequeno projeto faz parte do material diático da Disciplina **Desenvolvimento Full Stack Básico** 
-
-O objetivo aqui é ilutsrar o conteúdo apresentado ao longo das três aulas da disciplina.
+Esta API faz parte do desenvolvimento do MVP  Disciplina **Desenvolvimento Full Stack Básico**. O objetivo é centralizar informações de provedores, como personal trainers, academias e instrutores independentes, facilitando o cadastro e a visualização de aulas e serviços. A solução busca resolver a dificuldade atual de acesso a essas informações — que hoje dependem de interação presencial — oferecendo uma base digital simples e escalável, tanto para usuários quanto para provedores.
 
 ---
 ## Como executar 
